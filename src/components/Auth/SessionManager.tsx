@@ -13,8 +13,8 @@ const SessionManager: React.FC = () => {
   useEffect(() => {
     if (!user) return
     
-    let inactivityTimer: NodeJS.Timeout
-    let warningTimer: NodeJS.Timeout
+    let inactivityTimer: ReturnType<typeof setTimeout>
+    let warningTimer: ReturnType<typeof setTimeout>
     
     const resetTimer = () => {
       clearTimeout(inactivityTimer)

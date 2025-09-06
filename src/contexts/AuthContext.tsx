@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { User as SupabaseUser, Session } from '@supabase/supabase-js'
 import { supabase, getCurrentUserProfile, isSupabaseConfigured } from '../lib/supabase'
+import { sessionAuthService } from '../lib/sessionAuth'
 import { User, AuthContextType, RegisterData } from '../types'
 import toast from 'react-hot-toast'
 
@@ -38,7 +39,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             setUser(null)
           }
         } else {
-          // Check for demo session
+          // Check for session-based authentication
+          const sessionAvailable = await sessionAuthService.isAvailable()
+          if (sessionAvailable) {
+            try {
+              const sessionStatus = await sessionAuthService.checkSession()
+              if (sessionStatus.authenticated) {
+                const profile = await sessionAuthService.getProfile()
+                setUser(profile.user)
+                console.log('Session-based authentication active')
+                return
+              }
+            } catch (error) {
+              console.log('No active session-based authentication')
+            }
+          }
+
+          // Fallback to demo session
           const demoSession = localStorage.getItem('demo_session')
           if (demoSession) {
             const session = JSON.parse(demoSession)
@@ -130,7 +147,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       // Check if Supabase is properly configured
       if (!isSupabaseConfigured) {
-        // In demo mode, check for demo user
+        // Try session-based authentication first
+        const sessionAvailable = await sessionAuthService.isAvailable()
+        if (sessionAvailable) {
+          try {
+            const response = await sessionAuthService.login({ identifier, password, rememberMe })
+            setUser(response.user)
+            toast.success('Login successful!')
+            return
+          } catch (error: any) {
+            // If session auth fails, fall back to demo mode
+            console.log('Session authentication failed, trying demo mode:', error.message)
+          }
+        }
+
+        // Fallback to demo mode
         const demoUser = localStorage.getItem('demo_user')
         if (demoUser && (identifier === JSON.parse(demoUser).email || identifier === JSON.parse(demoUser).username)) {
           const user = JSON.parse(demoUser)
@@ -139,7 +170,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           toast.success('Demo login successful! (Connect to Supabase for full functionality)')
           return
         } else {
-          throw new Error('Demo user not found. Please register first or connect to Supabase.')
+          throw new Error('Login failed. Please check your credentials or connect to Supabase.')
         }
       }
       
@@ -204,7 +235,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       // Check if Supabase is properly configured
       if (!isSupabaseConfigured) {
-        // In demo mode, simulate successful registration
+        // Try session-based registration first
+        const sessionAvailable = await sessionAuthService.isAvailable()
+        if (sessionAvailable) {
+          try {
+            await sessionAuthService.register(userData)
+            // Don't set user immediately for registration, let them login
+            toast.success('Account created successfully! Please log in.')
+            return
+          } catch (error: any) {
+            console.log('Session registration failed, trying demo mode:', error.message)
+          }
+        }
+
+        // Fallback to demo mode
         console.log('Demo mode: Simulating user registration for:', userData.email)
         
         // Create a mock user for demo purposes
@@ -316,6 +360,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (isSupabaseConfigured) {
         await supabase.auth.signOut()
       } else {
+        // Try session-based logout first
+        const sessionAvailable = await sessionAuthService.isAvailable()
+        if (sessionAvailable) {
+          try {
+            await sessionAuthService.logout()
+          } catch (error) {
+            console.log('Session logout failed, clearing local state')
+          }
+        }
+        
         // Clear demo session
         localStorage.removeItem('demo_session')
         localStorage.removeItem('demo_user')
